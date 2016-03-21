@@ -1,0 +1,1 @@
+This is a standup bot written in python that integrates with the Slack API.
