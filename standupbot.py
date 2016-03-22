@@ -33,12 +33,24 @@ class Standup:
     def get_active_users(self):
         active_users = []
         for member in self.channel.members:
-            status = self.stack_client.api_call("users.getPresence", member)
+            status = self.slack_client.api_call("users.getPresence", user=member)
 
-            if status["presence"] == "active":
-                active_users.append(User(self.slack_client.api_call("users.info", member)))
+            # TODO: Only track if user is actually a user and not a bot.
+            if status["presence"] is "active":
+                user_object = self.slack_client.api_call("users.info", user=member)
+                active_users.append(User(user_object["user"]))
+
+        user_message = ""
+
+        for user in active_users:
+            user_message += "<@{}> ".format(user.id)
+
+        self.broadcast_message(message="I'm currently tracking the following users: \n {}".format(user_message))
 
         return active_users
+
+    def broadcast_message(self, message):
+        self.slack_client.rtm_send_message(self.channel.id, message)
 
 
 class Channel:
@@ -60,7 +72,7 @@ class StandupBot:
     def __init__(self, token):
         self.token = token
         self.slack_client = None
-        self.Standup = None
+        self.standup = None
         self.last_ping = 0
         self.keepalive_timer = 3
         print("Standup Bot initialized.")
@@ -88,13 +100,21 @@ class StandupBot:
     def message_handler(self, channel, message):
         if "!standup" in message:
             # check to see if self.Standup is already initialized, and if so, if the standup is already started.
-            self.Standup = Standup(channel, self.slack_client)
+            if self.standup is None:
+                self.slack_client.rtm_send_message(channel=channel, message="Hello <!channel>, it's time for Standup!")
+                self.standup = Standup(channel, self.slack_client)
+            elif self.standup is not None & self.standup.status is "INITIALIZED":
+                self.slack_client.rtm_send_message([channel, "I will restart the meeting."])
+                self.standup = Standup(channel, self.slack_client)
         elif "!start" in message:
-            self.Standup.start_standup()
+            if self.standup is not None:
+                self.standup.start_standup()
 
     def response_handler(self, response):
-        if "message" in response["type"] and "subtype" not in response:
-            self.message_handler(channel=response["channel"], message=response["text"])
+        print(response)
+        if "type" in response and "subtype" not in response:
+            if "message" in response["type"]:
+                self.message_handler(channel=response["channel"], message=response["text"])
 
 
 def main_loop():
